@@ -1,0 +1,16 @@
+name = SendinBlue
+description = SendinBlue email service integration.
+core = 7.x
+
+files[] = includes/sendinblue.mailin.php
+files[] = includes/sendinblue.manage.inc
+files[] = includes/sendinblue_signup.entity.inc
+files[] = includes/sendinblue_signup.ui_controller.inc
+stylesheets[all][] = css/sendinblue.css
+dependencies[] = libraries (>=2)
+dependencies[] = entity
+
+configure = admin/config/system/sendinblue
+
+; Information added by Drupal.org packaging script on 2014-09-16
+core = "7.x"
