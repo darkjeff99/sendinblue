@@ -31,6 +31,17 @@ INSTALLATION
   * You need to have the API Key of SendinBlue API.
   * You need to login with the API Key on Home page
     in order to use all functionality of module.
+  * There are three ways to install the SDK:
+  1) The preferred and most simple way is:
+  use Composer Manager contrib module and follow instructions from it.
+
+  2) If you're using Libraries API contrib module:
+  cd */sites/all/libraries
+  mkdir sendinblue
+  cd sendinblue
+  composer require "sendinblue/api-v3-sdk:~7.4"
+
+  You may need to clear cache once this is done.
 
 CONFIGURATION
 -------------

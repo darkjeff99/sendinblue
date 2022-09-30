@@ -1,4 +1,7 @@
 <?php
+
+use SendinBlue\Client\Configuration;
+
 /**
  * @file
  * Rest class file.
@@ -8,200 +11,138 @@
  * Sendinblue REST client.
  */
 class SendinblueMailin {
-  public $apiKey;
-  public $baseUrl;
-  public $curlOpts = array();
+  const SENDINBLUE_API_VERSION_V2 = 'v2';
+  const SENDINBLUE_API_VERSION_V3 = 'v3';
+  private $sendinblueApiV3;
+  private $sendinblueApiV2;
+  private $sendInBlueLoggerFactory;
 
   /**
-   * Constructor.
-   *
-   * @param string $base_url
-   *   A request url of api.
-   * @param string $api_key
-   *   A access key of api.
+   * @var SendInBlueApiInterface
    */
-  public function __construct($base_url, $api_key) {
+  private $sendinblueMailin;
+
+  public function __construct() {
+    $this->sendInBlueLoggerFactory = new SendInBlueLoggerFactory();
+    $this->sendInBlueConfigFactory = new SendInBlueConfigFactory();
+
     if (!function_exists('curl_init')) {
-      $msg = 'SendinBlue requires CURL module';
-      watchdog('sendinblue', $msg, NULL, WATCHDOG_ERROR);
+      $this->sendInBlueLoggerFactory->error('SendinBlue requires CURL module');
       return;
     }
-    $this->baseUrl = $base_url;
-    $this->apiKey = $api_key;
+
+    if (module_exists('libraries')) {
+      libraries_load('sendinblue');
+    }
+
+    if (!method_exists(Configuration::class, 'getApiKey')) {
+      drupal_set_message('SendInBlue client initialization failed: Unable to load the SendInBlue PHP library.', 'error');
+      $this->sendInBlueLoggerFactory->error('SendInBlue client initialization failed: Unable to load the SendInBlue PHP library.');
+    }
+
+    $this->sendinblueApiV2 = new SendinblueApiV2();
+    $this->sendinblueApiV3 = new SendinblueApiV3();
+
+    $this->updateSendinblueMailin($this->getAccessKey());
   }
 
   /**
-   * Do CURL request with authorization.
+   * Get the access key store in configuration.
    *
-   * @param string $resource
-   *   A request action of api.
-   * @param string $method
-   *   A method of curl request.
-   * @param string $input
-   *   A data of curl request.
-   *
-   * @return array
-   *   An associate array with respond data.
+   * @return string
+   *   The SiB access key
    */
-  private function doRequest($resource, $method, $input) {
-    if (!function_exists('curl_init')) {
-      $msg = 'SendinBlue requires CURL module';
-      watchdog('sendinblue', $msg, NULL, WATCHDOG_ERROR);
-      return NULL;
-    }
-    $called_url = $this->baseUrl . "/" . $resource;
-    $ch = curl_init($called_url);
-    $auth_header = 'api-key:' . $this->apiKey;
-    $content_header = "Content-Type:application/json";
-    //if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-      // Windows only over-ride because of our api server.
-      curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-    //}
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array($auth_header, $content_header));
-    //curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($ch, CURLOPT_HEADER, 0);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $input);
-    $data = curl_exec($ch);
-    if (curl_errno($ch)) {
-      watchdog('sendinblue', 'Curl error: @error', array('@error' => curl_error($ch)), WATCHDOG_ERROR);
-    }
-    curl_close($ch);
-    return drupal_json_decode($data);
+  public function getAccessKey() {
+    return $this->sendInBlueConfigFactory->getAccessKey();
   }
 
   /**
-   * Do CURL request directly into sendinblue.
+   * Change Class Class in function of API version.
    *
-   * @param array $data
-   *  A data of curl request.
-   * @return array
-   *   An associate array with respond data.
+   * @param string $accessKey
+   *   The SiB access key.
+   *
+   * @return SendInBlueApiInterface
+   *   SendInBlueApiInterface (V2 or V3)
    */
-  private function doRequestDirect($data) {
-    if (!function_exists('curl_init')) {
-      $msg = 'SendinBlue requires CURL module';
-      watchdog('sendinblue', $msg, NULL, WATCHDOG_ERROR);
-      return NULL;
+  public function updateSendinblueMailin($accessKey) {
+    if ($this->getApiVersion($accessKey) === self::SENDINBLUE_API_VERSION_V3) {
+      $this->sendinblueMailin = $this->sendinblueApiV3;
     }
-    $url = 'http://ws.mailin.fr/';
-    $ch = curl_init();
-    $paramData = '';
-    $data['source'] = 'Drupal';
-    if (is_array($data))
-      foreach ($data as $key => $value) {
-        $paramData .= $key . '=' . urlencode($value) . '&';
-      }
     else {
-      $paramData = $data;
+      $this->sendinblueMailin = $this->sendinblueApiV2;
     }
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array('Expect:'));
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $paramData);
-    curl_setopt($ch, CURLOPT_HEADER, 0);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($ch, CURLOPT_URL, $url);
-    $data = curl_exec($ch);
-    curl_close($ch);
-    return $data;
+
+    $this->sendinblueMailin->setApiKey($accessKey);
+
+    return $this->sendinblueMailin;
   }
 
   /**
-   * Get Request of API.
+   * Get the access key store in configuration.
    *
-   * @param string $resource
-   *   A request action.
-   * @param string $input
-   *   A data of curl request.
+   * @param string $accessKey
+   *   The SiB access key.
    *
-   * @return array
-   *   A respond data.
+   * @return string
+   *   The SiB API version (V2 or V3)
    */
-  public function get($resource, $input) {
-    return $this->doRequest($resource, "GET", $input);
+  public function getApiVersion($accessKey = null) {
+    if(empty($accessKey)){
+      $accessKey = $this->getAccessKey();
+    }
+
+    if (strlen($accessKey) > 20 && strpos($accessKey, 'xkeysib') !== FALSE) {
+      return self::SENDINBLUE_API_VERSION_V3;
+    }
+    return self::SENDINBLUE_API_VERSION_V2;
+  }
+
+
+  /**
+   * Get the account email store in configuration.
+   *
+   * @return string
+   *   The SiB account email
+   */
+  public function getAccountEmail() {
+    return $this->sendInBlueConfigFactory->getAccountEmail();
   }
 
   /**
-   * Put Request of API.
+   * Get the account username store in configuration.
    *
-   * @param string $resource
-   *   A request action.
-   * @param string $input
-   *   A data of curl request.
-   *
-   * @return array
-   *   A respond data.
+   * @return string
+   *   The SiB account username
    */
-  public function put($resource, $input) {
-    return $this->doRequest($resource, "PUT", $input);
+  public function getAccountUsername() {
+    return $this->sendInBlueConfigFactory->getAccountUsername();
   }
 
   /**
-   * Post Request of API.
-   *
-   * @param string $resource
-   *   A request action.
-   * @param string $input
-   *   A data of curl request.
+   * Get the data account store in configuration.
    *
    * @return array
-   *   A respond data.
+   *   The SiB account store
    */
-  public function post($resource, $input) {
-    return $this->doRequest($resource, "POST", $input);
+  public function getAccountData() {
+    return $this->sendInBlueConfigFactory->getAccountData();
   }
 
-  /**
-   * Delete Request of API.
-   *
-   * @param string $resource
-   *   A request action.
-   * @param string $input
-   *   A data of curl request.
-   *
-   * @return array
-   *   A respond data.
-   */
-  public function delete($resource, $input) {
-    return $this->doRequest($resource, "DELETE", $input);
-  }
-
-  /**
-   * Get the details of an account.
-   *
-   * @return array
-   *   An array of account detail.
-   */
   public function getAccount() {
-    return $this->get("account", "");
+    return $this->sendinblueMailin->getAccount();
   }
 
-  /**
-   * Get campaigns by type.
-   *
-   * @param string $type
-   *   A campaign type.
-   *
-   * @return array
-   *   An array of campaigns.
-   */
   public function getCampaigns($type) {
-    return $this->get("campaign/detailsv2", drupal_json_encode(array("type" => $type)));
+    return $this->sendinblueMailin->getTemplates();
   }
 
   /**
-   * Get campaign by id.
-   *
-   * @param string $id
-   *   A campaign identification.
-   *
-   * @return array
-   *   An array of campaigns.
+   * @param $id
+   * @return GetSmtpTemplateOverview
    */
   public function getCampaign($id) {
-    return $this->get("campaign/" . $id . "/detailsv2", "");
+    return $this->sendinblueMailin->getTemplate($id);
   }
 
   /**
@@ -211,75 +152,71 @@ class SendinblueMailin {
    *   An array of all lists.
    */
   public function getLists() {
-    return $this->get("list", "");
+    $lists = $this->sendinblueMailin->getLists();
+
+    if ($lists !== NULL) {
+      return $lists->getLists();
+    }
+
+    return [];
   }
 
-  /**
-   * Get list by id.
-   *
-   * @param string $id
-   *   A list identification.
-   *
-   * @return array
-   *   An array of lists.
-   */
+  public function countUserlists($listIds) {
+    return $this->sendinblueMailin->countUserlists($listIds);
+  }
+
   public function getList($id) {
-    return $this->get("list/" . $id, "");
+    return $this->sendinblueMailin->getList($id);
   }
 
   /**
    * Send email via sendinblue.
    *
-   * @param string $to
+   * @param array $to
    *   A recipe email address.
    * @param string $subject
    *   A subject of email.
-   * @param string $from
-   *   A sender email address.
    * @param string $html
    *   A html body of email content.
    * @param string $text
    *   A text body of email content.
+   * @param array $from
+   *   A sender email address.
+   * @param array $replyto
+   *   A reply address.
    * @param array $cc
    *   A cc address.
    * @param array $bcc
    *   A bcc address.
-   * @param string $replyto
-   *   A reply address.
    * @param array $attachment
    *   A attachment information.
    * @param array $headers
    *   A header of email.
    *
-   * @return array
+   * @return CreateSmtpEmail
    *   An array of response code.
    */
-  public function sendEmail($to, $subject, $from, $html, $text, $cc = array(), $bcc = array(), $replyto = '', $attachment = array(), $headers = array()) {
-    return $this->post("email", drupal_json_encode(
-      array(
-        "cc" => $cc,
-        "text" => $text,
-        "bcc" => $bcc,
-        "replyto" => $replyto,
-        "html" => $html,
-        "to" => $to,
-        "attachment" => $attachment,
-        "from" => $from,
-        "subject" => $subject,
-        "headers" => $headers)));
+  public function sendEmail(
+    array $to,
+    string $subject,
+    string $html,
+    string $text,
+    array $from = [],
+    array $replyto = [],
+    array $cc = [],
+    array $bcc = [],
+    array $attachment = [],
+    array $headers = []
+  ){
+    return $this->sendinblueMailin->sendEmail($to, $subject, $html, $text, $from, $replyto, $cc, $bcc, $attachment, $headers);
   }
 
   /**
-   * Get user by email.
-   *
-   * @param string $email
-   *   An email address.
-   *
-   * @return array
-   *   An array of response code.
+   * @param $email
+   * @return GetExtendedContactDetails
    */
   public function getUser($email) {
-    return $this->get("user/" . $email, "");
+    return $this->sendinblueMailin->getUser($email);
   }
 
   /**
@@ -295,118 +232,40 @@ class SendinblueMailin {
    *   A new listid.
    * @param string $listid_unlink
    *   A link unlink.
-   *
-   * @return array
-   *   A response code.
    */
-  public function createUpdateUser($email, $attributes = array(), $blacklisted = array(), $listid = '', $listid_unlink = '') {
-    return $this->post("user/createdituser", drupal_json_encode(
-      array(
-        "email" => $email,
-        "attributes" => $attributes,
-        "blacklisted" => $blacklisted,
-        "listid" => $listid,
-        "listid_unlink" => $listid_unlink)));
+  public function createUpdateUser($email, $attributes = [], $blacklisted = [], $listid = '', $listid_unlink = '') {
+    $this->sendinblueMailin->createUpdateUser($email, $attributes, $blacklisted, $listid, $listid_unlink);
   }
 
-  /**
-   * Get attribute by type.
-   *
-   * @param string $type
-   *   A type.
-   *
-   * @return array
-   *   An array of attributes.
-   */
   public function getAttribute($type) {
-    return $this->get("attribute/" . $type, "");
+    return $this->sendinblueMailin->getAttributes();
   }
 
-  /**
-   * Get attribute by type.
-   *
-   * @return array
-   *   An array of attributes.
-   */
   public function getAttributes() {
-    return $this->get("attribute/", "");
-  }
-
-  /**
-   * Get senders.
-   *
-   * @param array $option
-   *   A option information.
-   *
-   * @return array
-   *   A sender details.
-   */
-  public function getSenders($option = array()) {
-    return $this->get("advanced", drupal_json_encode(array("option" => $option)));
+    return $this->sendinblueMailin->getAttributes();
   }
 
   /**
    * Get the access token.
    *
-   * @return array
+   * @return string
    *   An access token information.
    */
   public function getAccessTokens() {
-    return $this->get("account/token", "");
+    return $this->sendinblueMailin->getAccessTokens();
   }
 
   /**
-   * Delete access token.
-   *
-   * @param string $key
-   *   An access token.
-   *
-   * @return array
-   *   A response code.
-   */
-  public function deleteToken($key) {
-    return $this->post("account/deletetoken", drupal_json_encode(array("token" => $key)));
-  }
-
-  /**
-   * Get the details of smtp.
-   *
-   * @return array
-   *   A smtp details.
+   * @return GetSmtpDetails
    */
   public function getSmtpDetails() {
-    return $this->get("account/smtpdetail", "");
-  }
-
-  /**
-   * Display all users of list.
-   *
-   * @param array $listids
-   *   An array of lists.
-   * @param int $page
-   *   A page number.
-   * @param int $page_limit
-   *   A page limit per one page.
-   *
-   * @return array
-   *   An array of users.
-   */
-  public function displayListUsers($listids = array(), $page = 0, $page_limit = 50) {
-    return $this->post("list/display", drupal_json_encode(
-      array(
-        "listids" => $listids,
-        "page" => $page,
-        "page_limit" => $page_limit)));
+    return $this->sendinblueMailin->getSmtpDetails();
   }
 
   /**
    * Add the Partner's name in sendinblue.
    */
   public function partnerDrupal() {
-    $data = array();
-    $data['key'] = $this->apiKey;
-    $data['webaction'] = 'MAILIN-PARTNER';
-    $data['partner'] = 'DRUPAL';
-    $this->doRequestDirect($data);
+    $this->sendinblueMailin->partnerDrupal();
   }
 }

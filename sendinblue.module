@@ -11,6 +11,40 @@ define('SENDINBLUE_SIGNUP_BLOCK', 1);
 define('SENDINBLUE_SIGNUP_PAGE', 2);
 define('SENDINBLUE_SIGNUP_BOTH', 3);
 
+module_load_include('php', 'sendinblue', 'includes/Model/CreateSmtpEmail');
+module_load_include('php', 'sendinblue', 'includes/Model/GetLists');
+module_load_include('php', 'sendinblue', 'includes/Model/GetAccount');
+module_load_include('php', 'sendinblue', 'includes/Model/GetAccountPlan');
+module_load_include('php', 'sendinblue', 'includes/Model/GetAttributes');
+module_load_include('php', 'sendinblue', 'includes/Model/GetAttributesAttributes');
+module_load_include('php', 'sendinblue', 'includes/Model/GetAttributesEnumeration');
+module_load_include('php', 'sendinblue', 'includes/Model/GetExtendedClientAddress');
+module_load_include('php', 'sendinblue', 'includes/Model/GetExtendedContactDetails');
+module_load_include('php', 'sendinblue', 'includes/Model/GetExtendedList');
+module_load_include('php', 'sendinblue', 'includes/Model/GetSmtpDetails');
+module_load_include('php', 'sendinblue', 'includes/Model/GetSmtpTemplateOverview');
+module_load_include('php', 'sendinblue', 'includes/Model/GetSmtpTemplates');
+
+/**
+ * Implements hook_libraries_info().
+ */
+function sendinblue_libraries_info() {
+  $libraries['sendinblue'] = array(
+    'name' => 'SendInBlue API',
+    'vendor url' => 'https://github.com/sendinblue/APIv3-php-library',
+    'download url' => 'https://github.com/sendinblue/APIv3-php-library/archive/refs/tags/v7.4.0.zip',
+    'version' => '7.4.0',
+
+    // Path to the 'autoload.php' created by Composer.
+    'path' => 'vendor',
+    'files' => array(
+      'php' => array('autoload.php'),
+    ),
+  );
+
+  return $libraries;
+}
+
 /**
  * Implements hook_help().
  */
@@ -40,7 +74,7 @@ function sendinblue_menu() {
     'title' => 'Lists',
     'description' => 'Display SendinBlue Lists and Contacts.',
     'page callback' => 'sendinblue_list_page',
-    'access callback' => 'sendinblue_signup_entity_access',
+    'access callback' => ['sendinblue_custom_iframe_access'],
     'access arguments' => array('administer sendinblue'),
     'file' => 'includes/sendinblue_list.admin.inc',
     'type' => MENU_LOCAL_TASK,
@@ -50,7 +84,7 @@ function sendinblue_menu() {
     'title' => 'Campaigns',
     'description' => 'Display SendinBlue Campaigns.',
     'page callback' => 'sendinblue_campaign_page',
-    'access callback' => 'sendinblue_signup_entity_access',
+    'access callback' => ['sendinblue_custom_iframe_access'],
     'access arguments' => array('administer sendinblue'),
     'file' => 'includes/sendinblue_campaign.admin.inc',
     'type' => MENU_LOCAL_TASK,
@@ -60,7 +94,7 @@ function sendinblue_menu() {
     'title' => 'Statistics',
     'description' => 'Display SendinBlue Statistics.',
     'page callback' => 'sendinblue_statistic_page',
-    'access callback' => 'sendinblue_signup_entity_access',
+    'access callback' => ['sendinblue_custom_iframe_access'],
     'access arguments' => array('administer sendinblue'),
     'file' => 'includes/sendinblue_statstic.admin.inc',
     'type' => MENU_LOCAL_TASK,
@@ -158,6 +192,7 @@ function sendinblue_entity_info() {
         'file' => 'includes/sendinblue_signup.admin.inc',
         'controller class' => 'SendinBlueSignupUIController',
       ),
+      'access arguments' => array('administer sendinblue'),
       'access callback' => 'sendinblue_signup_entity_access',
     ),
   );
@@ -202,11 +237,21 @@ function sendinblue_block_view($delta = '') {
 /**
  * Check whether it is possible to access or not.
  *
- * @return array
- *   If current is on loged-in status, return 1, else 0.
+ * @return bool
+ *   If current has logged_in, acces required, and is on SendInBlue loged-in status, return 1, else 0.
  */
-function sendinblue_signup_entity_access() {
-  return SendinblueManager::isLoggedInState();
+function sendinblue_signup_entity_access($access) {
+  return user_is_logged_in() && user_access($access) && SendinblueManager::isLoggedInState();
+}
+
+/**
+ * Check whether it is possible to access or not.
+ *
+ * @return bool
+ *   If current has logged_in, acces required, and is on SendInBlue loged-in status, return 1, else 0.
+ */
+function sendiblue_custom_iframe_access($access) {
+  return user_is_logged_in() && user_access($access) && SendinblueManager::isLoggedInState() && SendinblueManager::isLoggedInV2State();
 }
 
 /**
@@ -256,12 +301,8 @@ function sendinblue_forms($form_id, $args) {
  * Returns a subscription form for sendinblue lists.
  */
 function sendinblue_signup_subscribe_form($form, &$form_state, $signup, $type) {
-  global $user;
-  if (user_is_logged_in()){
-    if (SendinblueManager::getSubscriberByEmail($user->mail)){
-      return;
-    }
-  }
+  $sendinblueMailin = new SendinblueMailin();
+
   $form['#attributes'] = array('class' => array('sendinblue-signup-subscribe-form'));
   $form['description'] = array(
     '#markup' => check_plain($signup->settings['description']),
@@ -275,44 +316,35 @@ function sendinblue_signup_subscribe_form($form, &$form_state, $signup, $type) {
 
   if (isset($signup->settings['fields']['mergefields'])) {
     $merge_fields = $signup->settings['fields']['mergefields'];
-    $attributes = variable_get(SendinblueManager::ATTRIBUTE_LISTS, array());
+    $attributes = $sendinblueMailin->getAttributes()->getAttributes();
+
     if (is_array($merge_fields)) {
       foreach ($merge_fields as $key => $value) {
-        if ($key == 'EMAIL') {
-          if (user_is_logged_in()){
-            $form['fields'][$key] = array(
-              '#type' => 'checkbox',
-              '#title' => check_plain(t('I subscribe to the newsletter to be informed of the latest news')),
-              '#attributes' => array('style' => 'width:100%;box-sizing:border-box;'),
-              '#required' => FALSE,
-            );
-          } 
-          else {
+        if ($key === 'EMAIL') {
           $form['fields'][$key] = array(
-              '#type' => 'textfield',
-              '#title' => check_plain($value['label']),
-              '#attributes' => array('style' => 'width:100%;box-sizing:border-box;'),
-              '#required' => TRUE,
-            );
-          }
+            '#type' => 'textfield',
+            '#title' => check_plain($value['label']),
+            '#attributes' => array('style' => 'width:100%;box-sizing:border-box;'),
+            '#required' => TRUE,
+          );
         }
         else {
           if (isset($value['check'])) {
             foreach ($attributes as $attribute) {
-              if ($attribute['name'] == $key) {
-                $type = $attribute['type'];
-                if ($type == 'category') {
-                  $enumerations = $attribute['enumeration'];
+              if ($attribute->getName() === $key) {
+                $type = $attribute->getType();
+                if ($type === 'category') {
+                  $enumerations = $attribute->getEnumeration();
                 }
                 break;
               }
             }
-            if ($type != 'category') {
+            if ($type !== 'category') {
               $form['fields'][$key] = array(
                 '#type' => 'textfield',
                 '#title' => check_plain($value['label']),
                 '#attributes' => array('style' => 'width:100%;box-sizing:border-box;'),
-                '#required' => isset($value['required']) ? TRUE : FALSE,
+                '#required' => isset($value['required']),
               );
             }
             else {
@@ -325,7 +357,7 @@ function sendinblue_signup_subscribe_form($form, &$form_state, $signup, $type) {
                 '#title' => check_plain($value['label']),
                 '#options' => $options,
                 '#attributes' => array('style' => 'width:100%;box-sizing:border-box;'),
-                '#required' => isset($value['required']) ? TRUE : FALSE,
+                '#required' => isset($value['required']),
               );
             }
           }
@@ -347,13 +379,11 @@ function sendinblue_signup_subscribe_form($form, &$form_state, $signup, $type) {
  * Validate handler to add users to lists on subscription form submission.
  */
 function sendinblue_signup_subscribe_form_validate($form, &$form_state) {
-  global $user;
+  $sendinblueMailin = new SendinblueMailin();
+
   $signup = reset($form_state['build_info']['args']);
-  if ($user->uid != 0){
-    $email = $user->mail;
-  } else {
-    $email = $form_state['values']['fields']['EMAIL'];
-  }
+  $email = $form_state['values']['fields']['EMAIL'];
+
   if (!valid_email_address($email)) {
     form_set_error('email', check_plain($signup->settings['subscription']['messages']['invalid']));
     return;
@@ -361,12 +391,11 @@ function sendinblue_signup_subscribe_form_validate($form, &$form_state) {
 
   $list_id = $signup->settings['subscription']['settings']['list'];
   $response = SendinblueManager::validationEmail($email, $list_id);
-  if ($response['code'] == 'invalid') {
+  if ($response['code'] === 'invalid') {
     form_set_error('email', check_plain($signup->settings['subscription']['messages']['invalid']));
     return;
   }
-  if ($response['code'] == 'already_exist') {
-    _addSubscriberTable($email, array());
+  if ($response['code'] === 'already_exist') {
     form_set_error('email', check_plain($signup->settings['subscription']['messages']['existing']));
     return;
   }
@@ -380,31 +409,32 @@ function sendinblue_signup_subscribe_form_validate($form, &$form_state) {
   array_push($list_ids, $list_id);
 
   $info = array();
-  $attributes = variable_get(SendinblueManager::ATTRIBUTE_LISTS, array());
 
-  foreach ($attributes as $attribute) {
-    if (isset($form_state['values']['fields'][$attribute['name']])) {
-      $info[$attribute['name']] = $form_state['values']['fields'][$attribute['name']];
+  foreach ($sendinblueMailin->getAttributes()->getAttributes() as $attribute) {
+    if (isset($form_state['values']['fields'][$attribute->getName()])) {
+      $info[$attribute->getName()] = $form_state['values']['fields'][$attribute->getName()];
     }
   }
-  $response_code = SendinblueManager::subscribeUser($email, $info, $list_ids);
-  if ($response_code != 'success') {
-    form_set_error('email', check_plain($signup->settings['subscription']['messages']['general']));
-    return;
-  }
+
+  // Subscribe USER on Sib.
+  SendinblueManager::subscribeUser($email, $info, $list_ids);
 
   // Store db.
   $data = SendinblueManager::getSubscriberByEmail($email);
   if ($data == FALSE) {
-    _addSubscriberTable($email, $info);
-  }
-  else {
-    $uniqid = $data['code'];
+    $uniqid = uniqid();
+    $data = array(
+      'email' => $email,
+      'info' => serialize($info),
+      'code' => $uniqid,
+      'is_active' => 1,
+    );
+    SendinblueManager::addSubscriberTable($data);
   }
 
   // Send confirm email.
   if ($email_confirmation == '1') {
-    SendinblueManager::sendEmail('confirm', $email, $uniqid, $list_id, '-1', $templage_id);
+    SendinblueManager::sendEmail('confirm', $email, $templage_id);
   }
 }
 
@@ -418,17 +448,6 @@ function sendinblue_signup_subscribe_form_submit($form, &$form_state) {
   if ($signup->settings['subscription']['settings']['redirect_url'] != '') {
     $form_state['redirect'] = $signup->settings['subscription']['settings']['redirect_url'];
   }
-}
-
-function _addSubscriberTable($email, $info){
-  $uniqid = uniqid();
-  $data = array(
-    'email' => $email,
-    'info' => serialize($info),
-    'code' => $uniqid,
-    'is_active' => 1,
-  );
-  SendinblueManager::addSubscriberTable($data);
 }
 
 /**

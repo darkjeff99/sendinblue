@@ -120,6 +120,9 @@ function sendinblue_uninstall() {
   variable_del('sendinblue_smtp_details');
   variable_del('sendinblue_on');
   variable_del('sendinblue_debug');
+
+  variable_set('mail_system', array('default-system' => 'DefaultMailSystem'));
+
   $queue = DrupalQueue::get('sendinblue');
   $queue->deleteQueue();
   $queue = DrupalQueue::get('sendinblue_batch');
@@ -127,19 +130,48 @@ function sendinblue_uninstall() {
 }
 
 /**
+ * Implements hook_disable().
+ */
+function sendinblue_disable() {
+  variable_set('sendinblue_on', 0);
+  variable_set('mail_system', array('default-system' => 'DefaultMailSystem'));
+}
+
+/**
  * Implements hook_requirements().
  */
 function sendinblue_requirements($phase) {
-  $requirements = array();
-  // Ensure translations don't break at install time:
+  // Ensure translations don't break during installation.
   $t = get_t();
-  $has_curl = function_exists('curl_init');
-  if (!$has_curl) {
-    $requirements['sendinblue'] = array(
-      'title' => $t('SendinBlue'),
-      'description' => $t('SendinBlue module could not be installed because the PHP <a href="@curl_url">cURL</a> library in not available', array('@curl_url' => 'http://php.net/manual/curl.setup.php')),
-      'severity' => REQUIREMENT_ERROR,
-    );
+  $requirements = array();
+
+  $requirements['sendinblue']['title'] = $t('SendinBlue');
+  if (!function_exists('curl_init')) {
+     $requirements['sendinblue']['value'] = $t('The SendinBlue module need cURL module');
+     $requirements['sendinblue']['description'] = $t('The SendinBlue module need cURL module');
+     $requirements['sendinblue']['severity'] = REQUIREMENT_ERROR;
+     return $requirements;
   }
+
+  if(module_exists('libraries')){
+     libraries_load('sendinblue');
+  }else{
+     $requirements['sendinblue']['value'] = $t('SendinBlue');
+     $requirements['sendinblue']['description'] = $t('The SendinBlue need Libraries Module and SendinBlue Library.');
+     $requirements['sendinblue']['severity'] = REQUIREMENT_ERROR;
+     return $requirements;
+  }
+
+  if (!file_exists('sites/all/libraries/sendinblue/vendor/sendinblue/api-v3-sdk/lib/Configuration.php')) {
+     $requirements['sendinblue']['value'] = $t('SendinBlue');
+     $requirements['sendinblue']['description'] = $t('The SendinBlue library has not been installed correctly.');
+     $requirements['sendinblue']['severity'] = REQUIREMENT_ERROR;
+     return $requirements;
+  }
+
+  $requirements['sendinblue']['value'] = $t('SendinBlue');
+  $requirements['sendinblue']['description'] = $t('The SendinBlue library is installed correctly. API settings are configured.');
+  $requirements['sendinblue']['severity'] = REQUIREMENT_OK;
+
   return $requirements;
 }

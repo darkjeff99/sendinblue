@@ -8,45 +8,6 @@
  * Basic manager of module.
  */
 class SendinblueManager {
-  /**
-   * The request url of Sendinblue api.
-   */
-  const API_URL = 'https://api.sendinblue.com/v2.0';
-
-  /**
-   * Variable name of Sendinblue access key.
-   */
-  const ACCESS_KEY = 'sendinblue_access_key';
-
-  /**
-   * Variable name of Sendinblue account email.
-   */
-  const ACCOUNT_EMAIL = 'sendinblue_account_email';
-
-  /**
-   * Variable name of Sendinblue account user name.
-   */
-  const ACCOUNT_USERNAME = 'sendinblue_account_username';
-
-  /**
-   * Variable name of Sendinblue account data.
-   */
-  const ACCOUNT_DATA = 'sendinblue_account_data';
-
-  /**
-   * Variable name of access_token.
-   */
-  const ACCESS_TOKEN = 'sendinblue_access_token';
-
-  /**
-   * Variable name of attribute lists.
-   */
-  const ATTRIBUTE_LISTS = 'sendinblue_attribute_lists';
-
-  /**
-   * Variable name of smtp details.
-   */
-  const SMTP_DETAILS = 'sendinblue_smtp_details';
 
   /**
    * Generate sidebar.
@@ -120,29 +81,24 @@ class SendinblueManager {
    *   A html of home page when login.
    */
   public static function generateHomeLogin() {
-
-    $accesss_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $accesss_key);
+    $sendinblueMailin = new SendinblueMailin();
 
     // Calculate total count of subscribers.
-    $list_response = $mailin->getLists();
-    if ($list_response['code'] != 'success') {
-      $total_subscribers = 0;
-    }
-    else {
-      $list_datas = $list_response['data'];
-      $list_ids = array();
-      foreach ($list_datas as $list_data) {
-        $list_ids[] = $list_data['id'];
+    $totalSubscribers = 0;
+    $listIds = [];
+
+    $sibLists = $sendinblueMailin->getLists();
+    if ($sibLists) {
+      foreach ($sibLists as $list) {
+        $listIds[] = $list['id'];
       }
-      $user_response = $mailin->displayListUsers($list_ids, 1, 500);
-      $total_subscribers = intval($user_response['data']['total_list_records']);
+      $totalSubscribers = $sendinblueMailin->countUserlists($listIds);
     }
 
     // Get account details.
-    $account_email = variable_get(self::ACCOUNT_EMAIL, '');
-    $account_username = variable_get(self::ACCOUNT_USERNAME, '');
-    $account_data = variable_get(self::ACCOUNT_DATA, array());
+    $account_email = $sendinblueMailin->getAccountEmail();
+    $account_username = $sendinblueMailin->getAccountUsername();
+    $account_data = $sendinblueMailin->getAccountData();
 
     $print_html = '<div id="main-content">';
     $print_html .= '<div class="panel panel-default row small-content">';
@@ -151,14 +107,18 @@ class SendinblueManager {
     $print_html .= '</div><div class="panel-body"><span class="col-md-12"><b>' . t('You are currently logged in as :') . '</b></span>';
     $print_html .= '<div class="col-md-8 row" style="margin-bottom: 10px;"><p class="col-md-12" style="margin-top: 5px;">';
     $print_html .= check_plain($account_username) . ' - ' . check_plain($account_email) . '<br />';
-    $count = count($account_data);
-    for ($i = 0; $i < $count - 1; $i++) {
-      $print_html .= check_plain($account_data[$i]['plan_type']) . ' - ' . check_plain($account_data[$i]['credits']) . ' ' .  t('credits') . '<br />';
+    foreach ($account_data['plan'] as $account_datum) {
+      $print_html .= check_plain($account_datum['type']) . ' - ' . check_plain($account_datum['credits']) . ' ' .  t('credits') . '<br />';
     }
     $print_html .= '</p></div>';
+    $print_html .= '<div class="col-md-8 row" style="margin-bottom: 10px;"><p class="col-md-12" style="margin-top: 5px;">';
+    $print_html .= 'API Version: ' . $sendinblueMailin->getApiVersion() . '<br />';
+    $print_html .= '</p></div>';
+    $form = drupal_get_form('sendinblue_logout_form');
+    $print_html .= drupal_render($form);
     $print_html .= '<span class="col-md-12"><b>' . t('Contacts') . '</b></span><div class="col-md-8 row" style="margin-bottom: 10px;">';
-    $print_html .= '<p class="col-md-7" style="margin-top: 5px;">' . t('You have') . '<span id="sendinblue_total_contacts">';
-    $print_html .= check_plain($total_subscribers) . '</span> ' . t('contacts.') . '<br />';
+    $print_html .= '<p class="col-md-7" style="margin-top: 5px;">' . t('You have') . ' <span id="sendinblue_total_contacts">';
+    $print_html .= check_plain($totalSubscribers) . '</span> ' . t('contacts.') . '<br />';
     $print_html .= t('<a id="sendinblue_list_link" href="@sendinblue_list" target="_blank">>&nbsp;Access to the list of all my contacts</a>', array('@sendinblue_list' => 'https://my.sendinblue.com/users/list/?utm_source=drupal_plugin&utm_medium=plugin&utm_campaign=module_link'));
     $print_html .= '</p></div></div></div>';
     $print_html .= '<div class="panel panel-default row small-content"><div class="page-header">';
@@ -178,8 +138,7 @@ class SendinblueManager {
    */
   public static function generateListLogin() {
     $access_token = self::updateAccessToken();
-    $print_html = '<iframe id="datamain" src="https://my.sendinblue.com/lists/index/access_token/' . check_plain($access_token) . '" width="100%" height="750" scrolling="yes"></iframe>';
-    return $print_html;
+    return '<iframe id="datamain" src="https://my.sendinblue.com/lists/index/access_token/' . check_plain($access_token) . '" width="100%" height="750" scrolling="yes"></iframe>';
   }
 
   /**
@@ -190,8 +149,7 @@ class SendinblueManager {
    */
   public static function generateCampaignLogin() {
     $access_token = self::updateAccessToken();
-    $print_html = '<iframe id="datamain" src="https://my.sendinblue.com/camp/listing/access_token/' . check_plain($access_token) . '" width="100%" height="750" scrolling="yes"></iframe>';
-    return $print_html;
+    return '<iframe id="datamain" src="https://my.sendinblue.com/camp/listing/access_token/' . check_plain($access_token) . '" width="100%" height="750" scrolling="yes"></iframe>';
   }
 
   /**
@@ -202,8 +160,7 @@ class SendinblueManager {
    */
   public static function generateStatisticLogin() {
     $access_token = self::updateAccessToken();
-    $print_html = '<iframe id="datamain" src="https://my.sendinblue.com/camp/message/access_token/' . check_plain($access_token) . '" width="100%" height="750" scrolling="yes"></iframe>';
-    return $print_html;
+    return '<iframe id="datamain" src="https://my.sendinblue.com/camp/message/access_token/' . check_plain($access_token) . '" width="100%" height="750" scrolling="yes"></iframe>';;
   }
 
   /**
@@ -213,11 +170,23 @@ class SendinblueManager {
    *   A status of login of user.
    */
   public static function isLoggedInState() {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    if ($access_key != '') {
+    $sendInBlueConfigFactory = new SendInBlueConfigFactory();
+
+    if ($sendInBlueConfigFactory->getAccessKey()) {
       return TRUE;
     }
     return FALSE;
+  }
+
+  /**
+   * Check if current state is logged in V2 API.
+   *
+   * @return bool
+   *   A status of login of user.
+   */
+  public static function isLoggedInV2State() {
+    $sendinblueMailin = new SendinblueMailin();
+    return $sendinblueMailin->getApiVersion() === SendinblueMailin::SENDINBLUE_API_VERSION_V2;
   }
 
   /**
@@ -227,17 +196,13 @@ class SendinblueManager {
    *   An access token information.
    */
   public static function updateAccessToken() {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
-
-    // If exist old access_token, delete it.
-    $old_access_token = variable_get(self::ACCESS_TOKEN, '');
-    $mailin->deleteToken($old_access_token);
+    $sendinblueMailin = new SendinblueMailin();
+    $sendInBlueConfigFactory = new SendInBlueConfigFactory();
 
     // Get new access_token.
-    $access_response = $mailin->getAccessTokens();
-    $access_token = $access_response['data']['access_token'];
-    variable_set(self::ACCESS_TOKEN, $access_token);
+    $access_token = $sendinblueMailin->getAccessTokens();
+
+    $sendInBlueConfigFactory->setAccessToken($access_token);
     return $access_token;
   }
 
@@ -268,83 +233,55 @@ class SendinblueManager {
    *   A type of email.
    * @param string $to_email
    *   A recipe address.
-   * @param string $code
-   *   A activate code.
-   * @param int $list_id
-   *   A list identification.
-   * @param string $sender_id
-   *   A sender identification.
    * @param string $template_id
    *   A template identification.
    */
-  public static function sendEmail($type, $to_email, $code, $list_id, $sender_id = '-1', $template_id = '-1') {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
+  public static function sendEmail($type, $to_email, $template_id = '-1') {
+    $sendinblueMailin = new SendinblueMailin();
 
-    $account_email = variable_get(self::ACCOUNT_EMAIL, '');
-    $account_username = variable_get(self::ACCOUNT_USERNAME, '');
+    $account_email = $sendinblueMailin->getAccountEmail();
+    $account_username = $sendinblueMailin->getAccountUsername();
+
+    $subjects = [
+      'confirm' => t('Subscription confirmed'),
+      'test' => t('[SendinBlue SMTP] test email'),
+    ];
 
     // Set subject info.
-    if ($type == 'confirm') {
-      $subject = t('Subscription confirmed');
-    }
-    elseif ($type == "double-optin") {
-      $subject = t('Please confirm subscription');
-    }
-    elseif ($type == 'test') {
-      $subject = t('[SendinBlue SMTP] test email');
-    }
-
-    $sender_email = $account_email;
-    $sender_name = $account_username;
-
-    if ($sender_email == '') {
-      $sender_email = t('no-reply@sendinblue.com');
-      $sender_name = t('SendinBlue');
-    }
+    $subject = $subjects[$type] ?? '[SendinBlue]';
+    $sender_email = !empty($account_email) ? $account_email : t('no-reply@sendinblue.com');
+    $sender_name = !empty($account_username) ? $account_username : t('SendinBlue');
 
     // Get template html and text.
     $template_contents = self::getEmailTemplate($type);
     $html_content = $template_contents['html_content'];
     $text_content = $template_contents['text_content'];
 
-    if ($type == "confirm" && $template_id != '-1') {
-      $response = $mailin->getCampaign($template_id);
-      if ($response['code'] == 'success') {
-        $html_content = $response['data'][0]['html_content'];
-        $subject = $response['data'][0]['subject'];
-        if (($response['data'][0]['from_name'] != '[DEFAULT_FROM_NAME]') &&
-          ($response['data'][0]['from_email'] != '[DEFAULT_FROM_EMAIL]') &&
-          ($response['data'][0]['from_email'] != '')) {
-          $sender_name = $response['data'][0]['from_name'];
-          $sender_email = $response['data'][0]['from_email'];
+    if ($type === "confirm" && $template_id !== '-1') {
+      $template = $sendinblueMailin->getCampaign($template_id);
+
+      if ($template !== NULL) {
+        $html_content = $template->getHtmlContent();
+        $subject = $template->getSubject();
+
+        if (($template->getFromName() !== '[DEFAULT_FROM_NAME]') && ($template->getFromEmail() !== '[DEFAULT_FROM_EMAIL]')) {
+          $sender_name = $template->getFromName();
+          $sender_email = $template->getFromEmail();
         }
       }
     }
 
     // Send mail.
-    $to = array($to_email => '');
-    $from = array($sender_email, $sender_name);
-    $null_array = array();
+    $replyTo = ['email' => $sender_email, 'name' => $sender_name];
+    $from = ['email' => $sender_email, 'name' => $sender_name];
+    $to = ['email' => $to_email];
+
     $base_url = self::getBaseUrl();
-    $site_domain = str_replace('https://', '', $base_url);
-    $site_domain = str_replace('http://', '', $site_domain);
+    $site_domain = str_replace(['https://', 'http://'], '', $base_url);
+    $html_content = str_replace(['{title}', '{site_domain}'], [$subject, $site_domain], $html_content);
+    $text_content = str_replace('{site_domain}', $base_url, $text_content);
 
-    $html_content = str_replace('{title}', $subject, $html_content);
-    $html_content = str_replace('{site_domain}', $site_domain, $html_content);
-
-    $text_content = str_replace('{site_domain}', self::getBaseUrl(), $text_content);
-    $activate_email = variable_get('sendinblue_on', 0);
-    if ($activate_email == '1') {
-      $headers = array();
-      $mailin->sendEmail($to, $subject, $from, $html_content, $text_content, $null_array, $null_array, $from, $null_array, $headers);
-    }
-    else {
-      $headers  = 'MIME-Version: 1.0' . "\r\n";
-      $headers .= 'Content-type: text/html; charset=iso-8859-1' . "\r\n";
-      $headers .= 'From: ' . $sender_name . ' <' . $sender_email . '>' . "\r\n";
-      mail($to_email, $subject, $html_content, $headers);
-    }
+    $sendinblueMailin->sendEmail($to, $subject, $html_content, $text_content, $from, $replyTo);
   }
 
   /**
@@ -365,15 +302,22 @@ class SendinblueManager {
    *   An array of attributes.
    */
   public static function getAttributeLists() {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
-    $response = $mailin->getAttributes();
-    if (($response['code'] == 'success') && (is_array($response['data']))) {
-      $attributes = array_merge($response['data']['normal_attributes'], $response['data']['category_attributes']);
-      variable_set(self::ATTRIBUTE_LISTS, $attributes);
+    $sendinblueMailin = new SendinblueMailin();
+    $sibAttributes = $sendinblueMailin->getAttributes();
+
+    if (!empty($sibAttributes->getAttributes())) {
+      $attributes = [];
+
+      foreach ($sibAttributes->getAttributes() as $attribute) {
+        if ($attribute->getCategory() === 'normal') {
+          $attributes[] = $attribute;
+        }
+      }
+
       return $attributes;
     }
-    return array();
+
+    return [];
   }
 
   /**
@@ -383,19 +327,18 @@ class SendinblueManager {
    *   An array of template.
    */
   public static function getTemplateList() {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
-    $response = $mailin->getCampaigns('template');
+    $sendinblueMailin = new SendinblueMailin();
+    $sibCampaigns = $sendinblueMailin->getCampaigns('template');
     $templates = array(array(
       'id' => '-1',
       'name' => 'Default',
       ),
     );
-    if (($response['code'] == 'success') && (is_array($response['data']))) {
-      foreach ($response['data']['campaign_records'] as $template) {
+    if ($sibCampaigns) {
+      foreach ($sibCampaigns->getTemplates() as $template) {
         $templates[] = array(
-          'id' => $template['id'],
-          'name' => $template['campaign_name'],
+          'id' => $template->getId(),
+          'name' => $template->getName(),
         );
       }
     }
@@ -409,54 +352,15 @@ class SendinblueManager {
    *   An array of lists.
    */
   public static function getLists() {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
-    $response = $mailin->getLists();
-    if (($response['code'] == 'success') && (is_array($response['data']))) {
-      return $response['data'];
-    }
-    return array();
+    $sendinblueMailin = new SendinblueMailin();
+
+    return $sendinblueMailin->getLists();
   }
 
-  /**
-   * Get list name form id.
-   *
-   * @param int $list_id
-   *   A list id.
-   *
-   * @return string
-   *   A list name.
-   */
   public static function getListNameById($list_id) {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
-    $response = $mailin->getList($list_id);
-    if (($response['code'] == 'success') && (is_array($response['data']))) {
-      return $response['data']['name'];
-    }
-    return '';
-  }
+    $sendinblueMailin = new SendinblueMailin();
 
-  /**
-   * Get sender list.
-   *
-   * @return array
-   *   An array of senders.
-   */
-  public static function getSenderList() {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
-    $response = $mailin->getSenders('');
-    $senders = array(array('id' => '-1', 'name' => 'Default'));
-    if (($response['code'] == 'success') && (is_array($response['data']))) {
-      foreach ($response['data'] as $sender) {
-        $senders[] = array(
-          'id' => $sender['from_email'],
-          'name' => $sender['from_email'],
-        );
-      }
-    }
-    return $senders;
+    return $sendinblueMailin->getList($list_id);
   }
 
   /**
@@ -471,41 +375,40 @@ class SendinblueManager {
    *   A response information.
    */
   public static function validationEmail($email, $list_id) {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
-    $response = $mailin->getUser($email);
-    if ($response['code'] == 'failure') {
-      $ret = array(
+    $sendinblueMailin = new SendinblueMailin();
+    $contactInfo = $sendinblueMailin->getUser($email);
+
+    if ($contactInfo === NULL) {
+      $ret = [
         'code' => 'success',
-        'listid' => array(),
-      );
+        'listid' => [],
+      ];
       return $ret;
     }
 
-    $listid = $response['data']['listid'];
-    if (!is_array($listid)) {
-      $listid = array();
-    }
-    if ($response['data']['blacklisted'] == 1) {
-      $ret = array(
+    $listId = $contactInfo->getListIds();
+
+    if ($contactInfo->isEmailBlacklisted()) {
+      $ret = [
         'code' => 'update',
-        'listid' => $listid,
-      );
+        'listid' => $listId,
+      ];
     }
     else {
-      if (!in_array($list_id, $listid)) {
-        $ret = array(
+      if (!in_array($list_id, $listId, true)) {
+        $ret = [
           'code' => 'success',
-          'listid' => $listid,
-        );
+          'listid' => $listId,
+        ];
       }
       else {
-        $ret = array(
+        $ret = [
           'code' => 'already_exist',
-          'listid' => $listid,
-        );
+          'listid' => $listId,
+        ];
       }
     }
+
     return $ret;
   }
 
@@ -518,15 +421,10 @@ class SendinblueManager {
    *   A data of subscriber.
    * @param array $listids
    *   An array of list id.
-   *
-   * @return string
-   *   A response information.
    */
   public static function subscribeUser($email, $info = array(), $listids = array()) {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
-    $response = $mailin->createUpdateUser($email, $info, 0, $listids, NULL);
-    return $response['code'];
+    $sendinblueMailin = new SendinblueMailin();
+    $sendinblueMailin->createUpdateUser($email, $info, [], $listids, NULL);
   }
 
   /**
@@ -561,29 +459,21 @@ class SendinblueManager {
   /**
    * Update smtp details.
    *
-   * @return string|bool
-   *   A access token if exist, else 0.
+   * @return GetSmtpDetails|null
    */
-  public static function updateSmtpDetails() {
-    $access_key = variable_get(self::ACCESS_KEY, '');
-    $mailin = new SendinblueMailin(self::API_URL, $access_key);
-    $response = $mailin->getSmtpDetails();
-    if ($response['code'] == 'success') {
-      if ($response['data']['relay_data']['status'] == 'enabled') {
-        $smtp_details = $response['data']['relay_data']['data'];
-        variable_set(self::SMTP_DETAILS, $smtp_details);
-        return $smtp_details;
-      }
-      else {
-        $smtp_details = array(
-          'relay' => FALSE,
-        );
-        variable_set('sendinblue_on', 0);
-        variable_set(self::SMTP_DETAILS, $smtp_details);
-        return $smtp_details;
-      }
+  public static function updateSmtpDetails()
+  {
+    $sendinblueMailin = new SendinblueMailin();
+    $sendInBlueConfigFactory = new SendInBlueConfigFactory();
+
+    $smtpDetails = $sendinblueMailin->getSmtpDetails();
+    if ($smtpDetails->isEnabled()) {
+      $sendInBlueConfigFactory->setSmtpDetails(drupal_json_encode($smtpDetails));
+      return $smtpDetails;
     }
 
-    return FALSE;
+    $sendInBlueConfigFactory->setSendInBlueOff();
+    $sendInBlueConfigFactory->setSmtpDetails(null);
+    return null;
   }
 }

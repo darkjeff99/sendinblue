@@ -127,43 +127,45 @@ function sendinblue_signup_form($form, &$form_state, SendinBlueSignup $signup) {
     '#suffix' => '</div>',
   );
 
+  /** @var GetAttributesAttributes $attribute */
   foreach ($attributes as $attribute) {
-    $form['wrap_left']['fields']['mergefields'][$attribute['name']]['check'] = array(
+    $attributeName = $attribute->getName();
+    $form['wrap_left']['fields']['mergefields'][$attributeName]['check'] = array(
       '#type' => 'checkbox',
-      '#title' => check_plain($attribute['name']),
-      '#default_value' => isset($signup->settings['fields']['mergefields'][$attribute['name']]['check']) ? $signup->settings['fields']['mergefields'][$attribute['name']]['check'] : FALSE,
+      '#title' => check_plain($attributeName),
+      '#default_value' => isset($signup->settings['fields']['mergefields'][$attributeName]['check']) ? $signup->settings['fields']['mergefields'][$attributeName]['check'] : FALSE,
     );
-    $form['wrap_left']['fields']['mergefields'][$attribute['name']]['label'] = array(
+    $form['wrap_left']['fields']['mergefields'][$attributeName]['label'] = array(
       '#type' => 'textfield',
       '#title' => t('Label'),
       '#tree' => TRUE,
-      '#default_value' => isset($signup->settings['fields']['mergefields'][$attribute['name']]['label']) ? $signup->settings['fields']['mergefields'][$attribute['name']]['label'] : $attribute['name'],
+      '#default_value' => isset($signup->settings['fields']['mergefields'][$attributeName]['label']) ? $signup->settings['fields']['mergefields'][$attributeName]['label'] : $attributeName,
       '#required' => TRUE,
       '#states' => array(
         // Hide unless needed.
         'visible' => array(
-          ':input[name="wrap_left[fields][mergefields][' . $attribute['name'] . '][check]"]' => array('checked' => TRUE),
+          ':input[name="wrap_left[fields][mergefields][' . $attributeName . '][check]"]' => array('checked' => TRUE),
         ),
         'required' => array(
-          ':input[name="wrap_left[form][mode][' . $attribute['name'] . '][check]"]' => array('checked' => TRUE),
+          ':input[name="wrap_left[form][mode][' . $attributeName . '][check]"]' => array('checked' => TRUE),
         ),
       ),
       '#attributes' => array('style' => 'width:200px;'),
       '#prefix' => '<div class="sendinblue_sub_field">',
       '#suffix' => '</div>',
     );
-    $form['wrap_left']['fields']['mergefields'][$attribute['name']]['required'] = array(
+    $form['wrap_left']['fields']['mergefields'][$attributeName]['required'] = array(
       '#type' => 'checkbox',
       '#title' => t('Required?'),
       '#tree' => TRUE,
-      '#default_value' => isset($signup->settings['fields']['mergefields'][$attribute['name']]['required']) ? $signup->settings['fields']['mergefields'][$attribute['name']]['required'] : FALSE,
+      '#default_value' => isset($signup->settings['fields']['mergefields'][$attributeName]['required']) ? $signup->settings['fields']['mergefields'][$attributeName]['required'] : FALSE,
       '#states' => array(
         // Hide unless needed.
         'visible' => array(
-          ':input[name="wrap_left[fields][mergefields][' . $attribute['name'] . '][check]"]' => array('checked' => TRUE),
+          ':input[name="wrap_left[fields][mergefields][' . $attributeName . '][check]"]' => array('checked' => TRUE),
         ),
         'required' => array(
-          ':input[name="wrap_left[form][mode][' . $attribute['name'] . '][check]"]' => array('checked' => TRUE),
+          ':input[name="wrap_left[form][mode][' . $attributeName . '][check]"]' => array('checked' => TRUE),
         ),
       ),
       '#prefix' => '<div class="sendinblue_sub_field">',
